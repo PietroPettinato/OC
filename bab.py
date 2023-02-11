@@ -9,7 +9,7 @@ from sklearn.feature_selection import mutual_info_classif
 
 def compute_profit(x, y):
     """
-    Calculate features profit using Information Gain.
+    Calculate features' profit using Information Gain.
 
     :param x: array of features values
     :param y: array of features' classes
@@ -23,7 +23,7 @@ def compute_profit(x, y):
 
 def create_knapsack_model(w, p, b):
     """
-    Utility function that create the knapsack problem's model by setting variables, constraints ad objective function
+    Function that create the knapsack problem's model by setting variables, constraints and objective function
 
     :param w: weights of the items
     :param p: profits of the items
@@ -55,13 +55,43 @@ def create_knapsack_model(w, p, b):
     return problem
 
 
-def solve_knapsak(problem):
+def create_problem_model(profit, treshold):
     """
-    Solve the given knapsack problem using Coin-OR Branch and Cut
+    Function that create the problem's mathematical model by setting variables, constraints and objective function
+
+    :param profit: profits of the items
+    :param treshold: profit treshold to reach (P)
+
+    :return: the problem
+    """
+    # number of profit
+    num_items = len(profit)
+
+    # Decision variables (array), x[i] gets 1 when item i is included in the solution
+    x = pulp.LpVariable.dicts('item', range(num_items),
+                              lowBound=0,
+                              upBound=1,
+                              cat='Integer')
+
+    # Initialize the problem and specify the type
+    problem = LpProblem("Feature_Problem", LpMinimize)
+
+    # Capacity constraint: the sum of the weights must be less than the capacity
+    problem += lpSum([x[i] * profit[j] for i, j in zip(range(num_items), profits.keys())]) >= treshold, "Constraint: Profit treshold"
+
+    # Add the objective function
+    problem += lpSum([x[i] for i in range(num_items)]), "Objective: Minimize features"
+
+    return problem
+
+
+def solve_problem(problem):
+    """
+    Solve the given problem using Coin-OR Branch and Cut
 
     :param problem: the problem to solve
 
-    :return: list containing the items to be taken to maximize the profit
+    :return: list containing the items to be taken
     """
     # Solve the optimization problem
     start_time = time.time()
@@ -77,40 +107,31 @@ def solve_knapsak(problem):
         solution.append(v.varValue)
         print(v.name, "=", v.varValue)
 
-    # The optimised objective function value is printed to the screen
-    # print("Total profit = ", value(problem.objective))
-
-    # Some more info about the solution (only variables / items that are selected)
-    '''
-    used_cap = 0.0
-    print("Used items:")
-    for i in range(num_items):
-        if x[i].value() == 1:
-            print(i, items[i])
-            used_cap += items[i][1]
-    print("Profit: %d - Used capacity: %d (/ %d)" % (value(problem.objective), used_cap, b))
-    '''
     return solution
 
-# dataset = pd.read_csv('datasets/iris.data')
-dataset = pd.read_csv('datasets/diabetes.csv')  # https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database
-# todo se i valori devono essere interi li arrotondo in qualche modo
+
+select = int(input("choose the dataset:\n 0 : iris\n 1 : diabetes\n> "))
+if select == 0:
+    dataset = pd.read_csv('datasets/iris.data')
+else:
+    dataset = pd.read_csv('datasets/diabetes.csv')  # https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database
+
+data = dataset[dataset.columns[0:(dataset.columns.size - 1)]]
+belonging_class = dataset[dataset.columns[-1]]  # last column is for belonging class
+
+data = data.astype(float)  # convert values to float
 
 print('\nDataset:\n', dataset)
-profit = compute_profit(dataset[dataset.columns[0:(dataset.columns.size - 1)]],
-                        dataset[dataset.columns[-1]])  # last column is for belonging class
+profits = compute_profit(data, belonging_class)
 
 print('\nProfit:')
-pprint(profit)
+pprint(profits)
 
-# removing belonging class column
-dataset.drop(dataset.columns.values[-1], axis=1, inplace=True)
+features = pd.DataFrame(index=data.columns, columns=['x', 'w', 'p'])
+features['x'] = np.zeros(data.columns.size)
+features['w'] = data.mean()
+features['p'] = profits
 
-# extraction of relevant data for the problem
-features = pd.DataFrame(index=dataset.columns, columns=['x', 'w', 'p'])
-features['x'] = np.zeros(dataset.columns.size)
-features['w'] = dataset.mean()
-features['p'] = profit
 
 
 #######################################
@@ -122,14 +143,15 @@ features['p'] = profit
 
 # set b (knapsack capacity) as the average weight we would like to reach
 reduct_to = 3  # approximate number of features we would like to reach
-b = features['w'].mean() * reduct_to  # todo PROBLEMA: dovrei mettere i pesi tutti =1 e mettere b = #feature_a_cui_voglio_ridurre_il_problema
+b = features['w'].mean() * reduct_to
+# b = features['w'].sum() * (2/3)
 
 # create the model for the problem to solve
 problem = create_knapsack_model(w=features['w'], p=features['p'], b=b)
 
 # Print the model created for the problem
 print('\n----------------------------------------------------')
-print('\t\t\t\tProblem formulation')
+print('\t\t\tProblem formulation PLI 1')
 print('----------------------------------------------------')
 print(problem)
 print('----------------------------------------------------\n')
@@ -138,23 +160,37 @@ print('----------------------------------------------------\n')
 # problem.writeLP("Knapsack.lp")
 
 # solve the problem using Pulp interface for Cbc
-solution = solve_knapsak(problem)
+solution = solve_problem(problem)
 features['x'] = solution
 
-# print(b)
-print('\nFinal result:')
+print('\nFinal result PLI 1:')
 print(features.to_string())
+print('\nb value:  ', b, end='\n')
+input("\n\nPLI 1 completed, press enter to continue with PLI 2...")
 
-
-'''
-FORSE USARE QUESTO PER SETTARE PESI E PROFITTI PUÒ ESSERE UNA SOLUZIONE
-
-from sklearn.feature_selection import SelectKBest, f_classifbestfeatures = SelectKBest(score_func=f_classif, k=3)
-iris_trim = bestfeatures.fit_transform(iris_norm, target)print(bestfeatures.scores_)
-print(bestfeatures.pvalues_)
-print(iris_trim.shape)
-'''
 
 #######################################
 ###############  PLI 2  ###############
 #######################################
+
+# set profit treshold
+treshold = features['p'].sum() * (2/3)  # we want to keep at list 2/3 of total profit
+
+# create the model for the problem to solve
+problem = create_problem_model(profits, treshold)
+
+# Print the model created for the problem
+print('\n----------------------------------------------------')
+print('\t\t\tProblem formulation PLI 2')
+print('----------------------------------------------------')
+print(problem)
+print('----------------------------------------------------\n')
+
+# solve the problem using Pulp interface for Cbc
+solution = solve_problem(problem)
+features['x'] = solution
+
+print('\nFinal result PLI 2:')
+print(features.to_string())
+print('\ntreshold value:  ', treshold, end='\n')
+
